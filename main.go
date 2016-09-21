@@ -10,6 +10,10 @@ import (
 	"sync"
 )
 
+const (
+	VERSION = "0.0.1"
+)
+
 var (
 	flagToken   string
 	flagChannel string
