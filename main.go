@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -25,6 +26,7 @@ var (
 		"gateway":     Gateway,
 		"dumpall":     DumpAll,
 		"guildroles":  GuildRoles,
+		"guild":       Guild,
 	}
 )
 
@@ -123,7 +125,7 @@ func DumpAll(s *discordgo.Session) error {
 	return nil
 }
 
-// Dumps he guild roles to stdout
+// Dumps the guild roles to stdout
 func GuildRoles(s *discordgo.Session) error {
 	roles, err := s.GuildRoles(flagGuild)
 	if err != nil {
@@ -135,5 +137,21 @@ func GuildRoles(s *discordgo.Session) error {
 	}
 
 	fmt.Println(len(roles), "Guild roles")
+	return nil
+}
+
+// Dumps the guild roles to stdout
+func Guild(s *discordgo.Session) error {
+	guild, err := s.Guild(flagGuild)
+	if err != nil {
+		return err
+	}
+
+	out, err := json.MarshalIndent(guild, "", " ")
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(string(out))
 	return nil
 }
