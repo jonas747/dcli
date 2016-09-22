@@ -17,18 +17,21 @@ const (
 var (
 	flagToken   string
 	flagChannel string
+	flagGuild   string
 	flagMessage string
 
 	actions = map[string]func(*discordgo.Session) error{
 		"sendmessage": SendMessage,
 		"gateway":     Gateway,
 		"dumpall":     DumpAll,
+		"guildroles":  GuildRoles,
 	}
 )
 
 func init() {
 	flag.StringVar(&flagToken, "t", "", "Token to use")
 	flag.StringVar(&flagChannel, "c", "", "Select a channel")
+	flag.StringVar(&flagGuild, "g", "", "Select a guild/server")
 	flag.StringVar(&flagMessage, "m", "", "Message to send")
 	flag.Parse()
 }
@@ -117,5 +120,20 @@ func DumpAll(s *discordgo.Session) error {
 
 	fmt.Println("Runnning. ctrl-c to exit.")
 	select {}
+	return nil
+}
+
+// Dumps he guild roles to stdout
+func GuildRoles(s *discordgo.Session) error {
+	roles, err := s.GuildRoles(flagGuild)
+	if err != nil {
+		return err
+	}
+
+	for _, v := range roles {
+		fmt.Printf("Role %s, ID: %s, Position: %d, Perms: %d, Hoist: %b, Color: %d, Managed: %b\n", v.Name, v.ID, v.Position, v.Permissions, v.Hoist, v.Color, v.Managed)
+	}
+
+	fmt.Println(len(roles), "Guild roles")
 	return nil
 }
