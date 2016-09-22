@@ -22,6 +22,7 @@ var (
 	actions = map[string]func(*discordgo.Session) error{
 		"sendmessage": SendMessage,
 		"gateway":     Gateway,
+		"dumpall":     DumpAll,
 	}
 )
 
@@ -102,4 +103,19 @@ func Gateway(s *discordgo.Session) error {
 
 	wg.Wait()
 	return s.Close()
+}
+
+// Dumps all discord events to stdout
+func DumpAll(s *discordgo.Session) error {
+	s.Debug = true
+	s.LogLevel = discordgo.LogDebug
+
+	err := s.Open()
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Runnning. ctrl-c to exit.")
+	select {}
+	return nil
 }
