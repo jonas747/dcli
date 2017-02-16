@@ -6,9 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
+	"log"
 	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -19,14 +21,19 @@ var (
 	flagToken   string
 	flagChannel string
 	flagGuild   string
+	flagUser    string
 	flagMessage string
+	flagDiscrim string
+	flagSkip    string
 
 	actions = map[string]func(*discordgo.Session) error{
-		"sendmessage": SendMessage,
-		"gateway":     Gateway,
-		"dumpall":     DumpAll,
-		"guildroles":  GuildRoles,
-		"guild":       Guild,
+		"sendmessage":   SendMessage,
+		"gateway":       Gateway,
+		"dumpall":       DumpAll,
+		"guildroles":    GuildRoles,
+		"guild":         Guild,
+		"discrimsearch": DiscrimSearch,
+		"dumpuser":      DumpUser,
 	}
 )
 
@@ -34,20 +41,35 @@ func init() {
 	flag.StringVar(&flagToken, "t", "", "Token to use")
 	flag.StringVar(&flagChannel, "c", "", "Select a channel")
 	flag.StringVar(&flagGuild, "g", "", "Select a guild/server")
+	flag.StringVar(&flagUser, "u", "", "Select a user")
 	flag.StringVar(&flagMessage, "m", "", "Message to send")
+	flag.StringVar(&flagDiscrim, "d", "", "discrim to search")
+	flag.StringVar(&flagSkip, "s", "", "skip results that match this")
 	flag.Parse()
+}
+
+func logln(v ...interface{}) {
+	fmt.Fprintln(os.Stderr, v...)
+}
+
+func logf(format string, v ...interface{}) {
+	fmt.Fprintf(os.Stderr, format, v...)
 }
 
 func main() {
 
 	if flagToken == "" {
-		fmt.Println("No token specified")
-		os.Exit(1)
+		flagToken = os.Getenv("DG_TOKEN")
+
+		if flagToken == "" {
+			logln("No token specified (either env var DG_TOKEN or arg)")
+			os.Exit(1)
+		}
 	}
 
 	session, err := discordgo.New(flagToken)
 	if err != nil {
-		fmt.Println("Error creating session:", err)
+		logln("Error creating session:", err)
 		os.Exit(1)
 	}
 
@@ -55,15 +77,18 @@ func main() {
 
 	actionFunc, ok := actions[action]
 	if !ok {
-		fmt.Println("Unknown actions")
+		logln("Unknown action: ", action)
 		PrintActions()
+		os.Exit(1)
 		return
 	}
 
 	err = actionFunc(session)
 	if err != nil {
-		fmt.Println("An error occured:", err)
+		logln("An error occured:", err)
 		os.Exit(1)
+	} else {
+		logln("Success.")
 	}
 }
 
@@ -148,6 +173,59 @@ func Guild(s *discordgo.Session) error {
 	}
 
 	out, err := json.MarshalIndent(guild, "", " ")
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(string(out))
+	return nil
+}
+
+// Connects to the gateway, and requests guild members from all joined guilds
+func DiscrimSearch(s *discordgo.Session) error {
+	var wg sync.WaitGroup
+
+	readyHandler := func(session *discordgo.Session, r *discordgo.Ready) {
+		for _, g := range r.Guilds {
+			session.RequestGuildMembers(g.ID, "", 0)
+			time.Sleep(time.Second)
+		}
+		logln("Done")
+		wg.Done()
+	}
+
+	guildMembersChunkHandler := func(session *discordgo.Session, gm *discordgo.GuildMembersChunk) {
+		for _, member := range gm.Members {
+			if member.User.Discriminator == flagDiscrim && (flagSkip == "" || flagSkip != member.User.ID) {
+				log.Printf("%q#%s (%s)", member.User.Username, member.User.Discriminator, member.User.ID)
+			}
+		}
+	}
+
+	s.AddHandler(readyHandler)
+	s.AddHandler(guildMembersChunkHandler)
+
+	wg.Add(1)
+	err := s.Open()
+	if err != nil {
+		return err
+	}
+
+	wg.Wait()
+	return s.Close()
+}
+
+func DumpUser(s *discordgo.Session) error {
+	if flagUser == "" {
+		logln("No user specified, dumping '@me'")
+		flagUser = "@me"
+	}
+	me, err := s.User(flagUser)
+	if err != nil {
+		return err
+	}
+
+	out, err := json.MarshalIndent(me, "", " ")
 	if err != nil {
 		return err
 	}
