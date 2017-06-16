@@ -17,23 +17,68 @@ const (
 	VERSION = "0.0.2-git"
 )
 
-var (
-	flagToken   string
-	flagChannel string
-	flagGuild   string
-	flagUser    string
-	flagMessage string
-	flagDiscrim string
-	flagSkip    string
+type Action struct {
+	RunFunc     func(*discordgo.Session) error
+	Name        string
+	Description string
+}
 
-	actions = map[string]func(*discordgo.Session) error{
-		"sendmessage":   SendMessage,
-		"gateway":       Gateway,
-		"dumpall":       DumpAll,
-		"guildroles":    GuildRoles,
-		"guild":         Guild,
-		"discrimsearch": DiscrimSearch,
-		"dumpuser":      DumpUser,
+var (
+	flagToken    string
+	flagChannel  string
+	flagGuild    string
+	flagUser     string
+	flagMessage  string
+	flagDiscrim  string
+	flagSkip     string
+	flagPresence string
+
+	actions = map[string]*Action{
+		"sendmessage": &Action{
+			Name:        "sendmessage",
+			Description: "Sends a message in a channel, token, channel and message is required",
+			RunFunc:     SendMessage,
+		},
+		"gateway": &Action{
+			Name:        "gateway",
+			Description: "Connects to the gatewat, waits for ready and then quits. Token is required",
+			RunFunc:     Gateway,
+		},
+		"dumpall": &Action{
+			Name:        "dumpall",
+			Description: "Connects to the gateway and dumps all incoming events to stdout. Token is required",
+			RunFunc:     DumpAll,
+		},
+		"guildroles": &Action{
+			Name:        "guildroles",
+			Description: "Dumps guildroles from the REST endpoint, consider using guild instead. Token and guild is required",
+			RunFunc:     GuildRoles,
+		},
+		"guild": &Action{
+			Name:        "guild",
+			Description: "Dumps guild from the REST endpoint, Token and guild is required",
+			RunFunc:     Guild,
+		},
+		"discrimsearch": &Action{
+			Name:        "discrimsearch",
+			Description: "Connects to the gateway, then requests all members from all servers and dumps users with the provided discrim, optinally skipping certain results, requires token and discrim",
+			RunFunc:     DiscrimSearch,
+		},
+		"dumpuser": &Action{
+			Name:        "dumpuser",
+			Description: "Dump a specific user, defaults to @me if none provided, requires Token",
+			RunFunc:     DumpUser,
+		},
+		"channels": &Action{
+			Name:        "channels",
+			Description: "Dumps  channels to stdout, required token and guild",
+			RunFunc:     DumpChannels,
+		},
+		"setpresence": &Action{
+			Name:        "setpresence",
+			Description: "Sets your presence, and keep it. Requires token.",
+			RunFunc:     SetPresence,
+		},
 	}
 )
 
@@ -45,6 +90,7 @@ func init() {
 	flag.StringVar(&flagMessage, "m", "", "Message to send")
 	flag.StringVar(&flagDiscrim, "d", "", "discrim to search")
 	flag.StringVar(&flagSkip, "s", "", "skip results that match this")
+	flag.StringVar(&flagPresence, "p", "", "Presence to set")
 	flag.Parse()
 }
 
@@ -73,17 +119,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	action := strings.ToLower(flag.Arg(0))
+	actionStr := strings.ToLower(flag.Arg(0))
 
-	actionFunc, ok := actions[action]
+	action, ok := actions[actionStr]
 	if !ok {
-		logln("Unknown action: ", action)
+		logln("Unknown action: ", actionStr)
 		PrintActions()
 		os.Exit(1)
 		return
 	}
 
-	err = actionFunc(session)
+	err = action.RunFunc(session)
 	if err != nil {
 		logln("An error occured:", err)
 		os.Exit(1)
@@ -94,9 +140,9 @@ func main() {
 
 // Prints all the available actions
 func PrintActions() {
-	fmt.Println("Available actions:")
-	for k, _ := range actions {
-		fmt.Println(k)
+	logln("Available actions:\n")
+	for k, v := range actions {
+		logf("%-15s: %s\n", k, v.Description)
 	}
 }
 
@@ -181,6 +227,22 @@ func Guild(s *discordgo.Session) error {
 	return nil
 }
 
+// Dumps the guild roles to stdout
+func DumpChannels(s *discordgo.Session) error {
+	channels, err := s.GuildChannels(flagGuild)
+	if err != nil {
+		return err
+	}
+
+	out, err := json.MarshalIndent(channels, "", " ")
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(string(out))
+	return nil
+}
+
 // Connects to the gateway, and requests guild members from all joined guilds
 func DiscrimSearch(s *discordgo.Session) error {
 	var wg sync.WaitGroup
@@ -232,4 +294,24 @@ func DumpUser(s *discordgo.Session) error {
 
 	fmt.Println(string(out))
 	return nil
+}
+
+// Connects to the gateway and waits for ready then exits
+func SetPresence(s *discordgo.Session) error {
+	readyHandler := func(session *discordgo.Session, r *discordgo.Ready) {
+		logln("Ready received! Setting presence...")
+		s.UpdateStatus(0, flagPresence)
+	}
+
+	s.AddHandler(readyHandler)
+
+	s.LogLevel = discordgo.LogInformational
+	err := s.Open()
+	if err != nil {
+		return err
+	}
+	logln("Opened connection, if nothing happens in a while, verify that your token is correct.")
+
+	select {}
+	return s.Close()
 }
